@@ -40,33 +40,33 @@ metadata.
 
 ### 3.1 Domain convention
 
-Use a 30 km x 30 km physical domain. Place a 3 km
-PML outside it on all four sides for a true full-space calculation:
+Use a 15 km x 15 km total computational domain with the PML included inside that
+extent on all four sides:
 
-- Physical domain: 30 km x 30 km.
-- External PML: 3 km on left, right, top, and bottom.
-- Total computational domain: 36 km x 36 km.
-- Computational coordinates: `x = [-18, 18] km`, `y = [0, 36] km`.
-- Physical coordinates: `x = [-15, 15] km`, `y = [3, 33] km`.
-- Physical center/source default: `(x0, y0) = (0, 18) km`.
-- Objective/training window: centered 20 km x 20 km,
-  `x = [-10, 10] km`, `y = [8, 28] km`.
+- Total computational domain: 15 km x 15 km.
+- PML: 2 km on left, right, top, and bottom.
+- PML-free physical interior: 11 km x 11 km.
+- Computational coordinates: `x = [-7.5, 7.5] km`, `y = [0, 15] km`.
+- PML-free coordinates: `x = [-5.5, 5.5] km`, `y = [2, 13] km`.
+- Physical center/source default: `(x0, y0) = (0, 7.5) km`.
+- Objective/training window: centered 10 km x 10 km,
+  `x = [-5, 5] km`, `y = [2.5, 12.5] km`.
 
-This convention keeps the objective window 5 km inside the physical-domain edges
-and 8 km away from the computational boundaries. Sources at center +/-8 km remain
-inside the objective window and outside the PML.
+The objective window remains 0.5 km inside the PML-free interior. Sources at the
+far-OOD limits lie on the objective edge and 0.5 km from the PML, which must be
+reported as a deliberately difficult extrapolation condition.
 
 ### 3.2 Solver configuration
 
 - Geometry: Cartesian, homogeneous, elastic, full space.
 - Boundary treatment: PML on all four sides; no free surface.
-- PML physical width: 3 km = 60 grid points.
+- PML physical width: 2 km = 20 grid points.
 - Pilot spatial resolution: 0.1 km (100 m). Retain 50 m as the later
   high-resolution production target after the pilot passes.
 - Time step: 0.002 s.
-- End time: 10.0 s.
-- Solver steps: 5,000.
-- Snapshot interval: 0.02 s (`iplot=10`), giving 500 frames per case.
+- End time: 5.0 s.
+- Solver steps: 2,500.
+- Snapshot interval: 0.02 s (`iplot=10`), giving 250 frames per case.
 - Discretization: sixth-order central diagonal-norm SBP, matching the benchmark.
 - Source: Gaussian point source, `x0=0`, `t0=1.0 s`.
 - Material baseline: `cp=6.0 km/s`, `cs=3.464 km/s`, `rho=2.6702 g/cm^3`.
@@ -74,9 +74,9 @@ inside the objective window and outside the PML.
   cases against the CPU solver before bulk generation.
 - Precision: solver `float64`; prepared ML tensors `float32` after verification.
 
-The pilot computational grid has 361 points per axis (181 points in each horizontal
+The pilot computational grid has 151 points per axis (76 points in each horizontal
 block, with the interface represented in both blocks). The centered objective
-window has 201 x 201 points and excludes all PML cells.
+window has 101 x 101 points and excludes all PML cells.
 
 ## 4. Dataset organization and schema
 
@@ -123,8 +123,8 @@ are recoverable.
 - Fixed `x0 = 0 km`.
 - Fixed `M0 = 0.02824`.
 - Fixed `T = 0.2 s`.
-- Training distribution: `y0 = 18 +/- 5 km`, or `[13, 23] km`.
-- OOD evaluation extends to `y0 = 18 +/- 8 km`, or `[10, 26] km`.
+- Training distribution: `y0 = 7.5 +/- 3 km`, or `[4.5, 10.5] km`.
+- OOD evaluation extends to `y0 = 7.5 +/- 5 km`, or `[2.5, 12.5] km`.
 
 The solver evaluates its spatial Gaussian continuously, so off-grid `y0` values are
 valid. Nevertheless, 1,500 samples in one dimension are strongly correlated. Treat
@@ -135,14 +135,14 @@ smaller subsets to quantify whether all 1,500 simulations add value.
 
 Use a deterministic, immutable split totaling 1,500 cases:
 
-- Training: 1,050 ID cases with offsets in `[-5,5] km`.
-- Validation: 100 ID plus 50 near-OOD cases with absolute offsets in `(5,7] km`.
-- Test: 150 ID plus 150 far-OOD cases with absolute offsets in `(7,8] km`.
+- Training: 1,050 ID cases with offsets in `[-3,3] km`.
+- Validation: 100 ID plus 50 near-OOD cases with absolute offsets in `(3,4] km`.
+- Test: 150 ID plus 150 far-OOD cases with absolute offsets in `(4,5] km`.
 
 Generate a one-dimensional scrambled Sobol or stratified design independently
 inside each interval. Assign splits before simulation with a fixed seed. Test
-locations must be held out, not copied from training. Include `y0=18 km` explicitly
-in the ID test set and `y0=10,26 km` in the OOD test set. Record nearest-training-
+locations must be held out, not copied from training. Include `y0=7.5 km` explicitly
+in the ID test set and `y0=2.5,12.5 km` in the OOD test set. Record nearest-training-
 point distance for every validation/test case so extrapolation difficulty is clear.
 
 Also define nested training subsets of 75, 150, 300, 600, and 1,050 cases. Train
@@ -151,7 +151,7 @@ both models on identical subsets to generate accuracy-versus-data learning curve
 To prioritize maximum OOD accuracy in the pilot, retain native 100 m spatial
 resolution without further spatial downsampling and keep the full 0.02 s saved-time
 resolution. Use edge-weighted training sampling near offsets
-of +/-5 km, tune hyperparameters on the mixed ID/near-OOD validation split, train at
+of +/-3 km, tune hyperparameters on the mixed ID/near-OOD validation split, train at
 least three seeds, and evaluate a seed ensemble in addition to individual models.
 Do not include the far-OOD test band in normalization, early stopping, or tuning.
 
@@ -170,7 +170,7 @@ Proceed to Stage 2 only when:
 
 Stage 2 fixes the source at the physical center and varies two parameters:
 
-- `x0 = 0 km`, `y0 = 18 km`.
+- `x0 = 0 km`, `y0 = 7.5 km`.
 - Suggested `M0` range: `[0.01412, 0.04236]` (0.5x to 1.5x baseline).
 - Suggested `T` range: `[0.15, 0.35] s`, matching the previous in-distribution pilot.
 
@@ -233,8 +233,8 @@ Responsibilities:
 - stop cleanly on low disk space or repeated failures;
 - support `--split`, `--limit`, `--jobs`, `--backend`, and `--resume`;
 - write raw NPZ or streaming HDF5 results, then extract/crop only `vx` and `vy` into
-  the 20 km x 20 km objective window;
-- verify 500 frames, 201 x 201 points, two fields, finite values, and monotonic time;
+  the 10 km x 10 km objective window;
+- verify 250 frames, 101 x 101 points, two fields, finite values, and monotonic time;
 - optionally remove bulky raw five-field output only after prepared-data checksum
   verification and only with an explicit cleanup flag.
 
@@ -262,7 +262,7 @@ For a case parameter vector and arbitrary query time `t`, predict:
 ```
 
 Stage 1 parameters contain normalized `y0`; Stage 2 parameters contain normalized
-`M0` and `T`. Derive the spatial source width from solver metadata (`2*dx = 0.1 km`)
+`M0` and `T`. Derive the spatial source width from solver metadata (`2*dx = 0.2 km`)
 instead of retaining the old hard-coded 0.2 km value.
 
 Use identical input channels, velocity normalization, architecture width/modes,
@@ -292,7 +292,7 @@ Run at least three shared seeds. Report median and dispersion for:
 - error versus time and versus swept parameter;
 - interior Navier residual on truth, FNO, and PINO;
 - training time, peak GPU memory, parameter count, and checkpoint size;
-- single-frame latency and complete 500-frame trajectory latency;
+- single-frame latency and complete 250-frame trajectory latency;
 - speedup versus the H100 numerical solver;
 - learning curves versus 75/150/300/600/1,050 training cases.
 
@@ -302,8 +302,8 @@ using validation field relative L2 and report physics residual independently.
 
 ## 10. Storage and runtime controls
 
-At 201 x 201 points, 500 frames, two `float32` fields require about 162 MB per case
-before compression, or roughly 242 GB for 1,500 cases. Raw five-field `float64`
+At 101 x 101 points, 250 frames, two `float32` fields require about 20.4 MB per case
+before compression, or roughly 30.6 GB for 1,500 cases. Raw five-field `float64`
 archives would be much larger. Therefore:
 
 - retain only objective-window `vx` and `vy` for routine ML use;

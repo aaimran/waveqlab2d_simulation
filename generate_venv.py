@@ -88,8 +88,11 @@ def main() -> int:
             "pip", "setuptools", "wheel",
         ])
 
-    # The cuda extra installs core NumPy/Numba dependencies plus numba-cuda.
-    run([str(venv_python), "-m", "pip", "install", "-e", f"{solver}[cuda]"])
+    # Install the CUDA backend and streaming HDF5 output used for dataset generation.
+    run([
+        str(venv_python), "-m", "pip", "install", "-e",
+        f"{solver}[cuda,hdf5]",
+    ])
 
     print("\nChecking CPU imports...")
     run([
@@ -97,6 +100,12 @@ def main() -> int:
         "import numpy, numba; "
         "print('NumPy', numpy.__version__); "
         "print('Numba', numba.__version__)",
+    ])
+
+    print("\nChecking HDF5 output support...")
+    run([
+        str(venv_python), "-c",
+        "import h5py; print('h5py', h5py.__version__)",
     ])
 
     print("\nChecking CUDA visibility (non-fatal during environment creation)...")

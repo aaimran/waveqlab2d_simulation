@@ -22,13 +22,13 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_ROOT = ROOT / "fno-pino-benchmark" / "stage1-y0"
 DEFAULT_SEED = 20260731
 
-PHYSICAL_SIZE_KM = 30.0
-PML_KM = 3.0
-COMPUTATIONAL_SIZE_KM = PHYSICAL_SIZE_KM + 2.0 * PML_KM
-OBJECTIVE_SIZE_KM = 20.0
+COMPUTATIONAL_SIZE_KM = 15.0
+PML_KM = 2.0
+PHYSICAL_SIZE_KM = COMPUTATIONAL_SIZE_KM - 2.0 * PML_KM
+OBJECTIVE_SIZE_KM = 10.0
 DX_KM = 0.1
 DT_S = 0.002
-TEND_S = 10.0
+TEND_S = 5.0
 IPLOT = 10
 X0_KM = 0.0
 CENTER_Y_KM = COMPUTATIONAL_SIZE_KM / 2.0
@@ -125,16 +125,16 @@ def make_group(
 
 
 def build_cases(seed: int = DEFAULT_SEED) -> list[Case]:
-    train = stratified_values(1050, -5.0, 5.0, seed + 10)
-    validation_id = stratified_values(100, -5.0, 5.0, seed + 20)
-    validation_ood = symmetric_ood_offsets(50, 5.0, 7.0, seed + 30)
-    test_id = stratified_values(150, -5.0, 5.0, seed + 40)
-    test_ood = symmetric_ood_offsets(150, 7.0, 8.0, seed + 50)
+    train = stratified_values(1050, -3.0, 3.0, seed + 10)
+    validation_id = stratified_values(100, -3.0, 3.0, seed + 20)
+    validation_ood = symmetric_ood_offsets(50, 3.0, 4.0, seed + 30)
+    test_id = stratified_values(150, -3.0, 3.0, seed + 40)
+    test_ood = symmetric_ood_offsets(150, 4.0, 5.0, seed + 50)
 
     # Required reference and extreme extrapolation cases.
     test_id[0] = 0.0
-    test_ood[0] = -8.0
-    test_ood[1] = 8.0
+    test_ood[0] = -5.0
+    test_ood[1] = 5.0
 
     cases = []
     cases.extend(make_group("train", "train", "id", train, seed + 10))
@@ -163,13 +163,13 @@ def validate_cases(cases: list[Case]) -> None:
         group = case.case_id.rsplit("_", 1)[0]
         counts[group] += 1
         offset = case.y_offset_km
-        if case.evaluation_group == "id" and not -5.0 <= offset <= 5.0:
+        if case.evaluation_group == "id" and not -3.0 <= offset <= 3.0:
             raise ValueError(f"ID offset out of range: {case}")
-        if case.evaluation_group == "near_ood" and not 5.0 < abs(offset) <= 7.0:
+        if case.evaluation_group == "near_ood" and not 3.0 < abs(offset) <= 4.0:
             raise ValueError(f"near-OOD offset out of range: {case}")
-        if case.evaluation_group == "far_ood" and not 7.0 < abs(offset) <= 8.0:
+        if case.evaluation_group == "far_ood" and not 4.0 < abs(offset) <= 5.0:
             raise ValueError(f"far-OOD offset out of range: {case}")
-        if not 8.0 <= case.y0_km <= 28.0:
+        if not 2.5 <= case.y0_km <= 12.5:
             raise ValueError(f"source lies outside objective window: {case}")
     if counts != EXPECTED_COUNTS:
         raise ValueError(f"incorrect split counts: {counts}")
@@ -177,8 +177,8 @@ def validate_cases(cases: list[Case]) -> None:
     if not any(case.split == "test" and case.y_offset_km == 0.0 for case in cases):
         raise ValueError("center reference case is missing")
     extremes = {case.y_offset_km for case in cases if case.evaluation_group == "far_ood"}
-    if not {-8.0, 8.0}.issubset(extremes):
-        raise ValueError("+/-8 km OOD reference cases are missing")
+    if not {-5.0, 5.0}.issubset(extremes):
+        raise ValueError("+/-5 km OOD reference cases are missing")
 
 
 def input_settings(case: Case, output_format: str) -> dict[str, object]:
@@ -193,8 +193,8 @@ def input_settings(case: Case, output_format: str) -> dict[str, object]:
         "output_streaming": str(streaming).lower(),
         "output_timing": "true",
         "output_mode": "subdomain",
-        "output_xlim": "-10,10",
-        "output_ylim": "8,28",
+        "output_xlim": "-5,5",
+        "output_ylim": "2.5,12.5",
         "station_file": "none",
         "station_stride": 1,
         "station_interpolation": "nearest",
@@ -261,7 +261,7 @@ SECTIONS = (
                   "rho")),
     ("Time and discretization", ("dt", "tend", "cfl", "fd_type", "sbp_family",
                                  "fd_order", "order", "mode", "interface")),
-    ("36 km computational domain: 30 km physical plus external PML",
+    ("15 km total domain including 2 km PML on every side",
      ("x_left_length", "x_right_length", "y_length", "x_left_resolution",
       "x_right_resolution", "y_resolution")),
     ("Gaussian point source", ("simulation_type", "source_type", "M0", "x0", "y0",
@@ -274,8 +274,8 @@ def render_input(case: Case, output_format: str) -> str:
     lines = [
         "# WaveQLab2D FNO/PINO Stage 1 y0 sweep",
         f"# case_id={case.case_id} split={case.split} group={case.evaluation_group}",
-        "# Physical domain: 30x30 km; computational domain: 36x36 km",
-        "# Objective window: 20x20 km; PML: 3 km external on every side",
+        "# Total domain: 15x15 km including PML; PML-free interior: 11x11 km",
+        "# Objective window: 10x10 km; PML: 2 km on every outer side",
     ]
     emitted = set()
     for title, keys in SECTIONS:
@@ -299,9 +299,9 @@ def validate_with_solver(cases: list[Case], output_format: str) -> None:
     for case in cases:
         params = config_2d.build_params(input_settings(case, output_format), 1)
         config_2d.validate(params)
-        if (params["nx_left"], params["nx_right"], params["ny"]) != (181, 181, 361):
+        if (params["nx_left"], params["nx_right"], params["ny"]) != (76, 76, 151):
             raise ValueError(f"unexpected grid for {case.case_id}")
-        if params["nt"] != 5000 or params["iplot"] != 10:
+        if params["nt"] != 2500 or params["iplot"] != 10:
             raise ValueError(f"unexpected time sampling for {case.case_id}")
 
 
@@ -321,9 +321,9 @@ def manifest_row(case: Case) -> dict[str, object]:
         "pml_km": PML_KM,
         "pml_points": PML_POINTS,
         "dx_km": DX_KM,
-        "nx_left": 181,
-        "nx_right": 181,
-        "ny": 361,
+        "nx_left": 76,
+        "nx_right": 76,
+        "ny": 151,
         "snap_dt_s": DT_S * IPLOT,
         "expected_frames": round(TEND_S / (DT_S * IPLOT)),
         "field_order": "vx,vy",
@@ -362,10 +362,10 @@ def write_dataset(root: Path, cases: list[Case], output_format: str, overwrite: 
         "total_cases": len(cases),
         "counts": EXPECTED_COUNTS,
         "output_format": output_format,
-        "physical_domain_km": [30.0, 30.0],
-        "computational_domain_km": [36.0, 36.0],
-        "objective_window": {"x_km": [-10.0, 10.0], "y_km": [8.0, 28.0]},
-        "pml_km": 3.0,
+        "physical_domain_km": [11.0, 11.0],
+        "computational_domain_km": [15.0, 15.0],
+        "objective_window": {"x_km": [-5.0, 5.0], "y_km": [2.5, 12.5]},
+        "pml_km": 2.0,
         "spatial_resolution_km": DX_KM,
         "temporal_resolution_s": DT_S,
         "snapshot_interval_s": DT_S * IPLOT,
@@ -385,10 +385,10 @@ def print_summary(cases: list[Case], output_root: Path, dry_run: bool) -> None:
     print(f"Stage:             y0")
     print(f"Total cases:       {len(cases)}")
     print(f"Counts:            {counts}")
-    print(f"Train y0:          13 to 23 km (center +/-5 km)")
-    print(f"Far-OOD y0:        10 to 11 and 25 to 26 km")
-    print(f"Grid:              181 + 181 by 361")
-    print(f"Steps/frames:      5000 / 500")
+    print(f"Train y0:          4.5 to 10.5 km (center +/-3 km)")
+    print(f"Far-OOD y0:        2.5 to 3.5 and 11.5 to 12.5 km")
+    print(f"Grid:              76 + 76 by 151")
+    print(f"Steps/frames:      2500 / 250")
     print(f"Output root:       {output_root}")
 
 
