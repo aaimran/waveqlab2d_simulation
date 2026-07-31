@@ -1,0 +1,81 @@
+# Punakha DGX CPU benchmark: pml3km, T=0.1 s, y0=37.5 km
+# The matching CPU/GPU deck has identical numerical and output parameters.
+
+# Compute backend
+compute_backend = cpu
+precision = float64
+gpu_device = 0
+gpu_block_x = 16
+gpu_block_y = 8
+gpu_memory_fraction = 0.85
+
+# Output settings: a narrow full-depth strip limits benchmark I/O volume
+output_prefix = cpu_punakha_pml3km_T0p1_y37p5
+output_format = npz
+output_compression = uncompressed
+output_streaming = false
+output_timing = true
+output_mode = subdomain
+output_xlim = -1,1
+output_ylim = 0,50
+station_file = none
+station_stride = 1
+station_interpolation = nearest
+station_include_fault = false
+# dt=0.001 s and iplot=20 save output every 0.02 s
+iplot = 20
+
+# Boundary conditions
+absorbing_method = pml
+pml_width = 150
+pml_profile_order = 3
+pml_reflection_target = 1e-6
+pml_max_damping = auto
+boundary_x_left = absorbing
+boundary_x_right = absorbing
+boundary_y_surface = free
+boundary_y_depth = absorbing
+pml_x_left = true
+pml_x_right = true
+pml_y_surface = false
+pml_y_depth = true
+
+# Elastic material
+response = elastic
+q_storage = conventional
+coarse_grain = false
+Qp = 1000000000.0
+Qs = 1000000000.0
+
+# Simulation settings
+dt = 0.001
+tend = 10.0
+cfl = 0.5
+fd_type = central
+sbp_family = diagonal
+fd_order = 6
+order = 6
+mode = II
+interface = none
+
+# 50 km x 50 km domain at 20 m (0.02 km) spacing
+x_left_length = 25.0
+x_right_length = 25.0
+y_length = 50.0
+x_left_resolution = 0.02
+x_right_resolution = 0.02
+y_resolution = 0.02
+
+# Homogeneous material properties (km/s and g/cm^3)
+cp = 6.0
+cs = 3.464
+rho = 2.6702
+
+# Gaussian point source; x is centered and y varies by benchmark case
+simulation_type = PointSource
+source_type = Gaussian
+M0 = 0.02824
+x0 = 0.0
+y0 = 37.5
+t0 = 1.0
+T = 0.1
