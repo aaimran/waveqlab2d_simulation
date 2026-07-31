@@ -1,0 +1,15 @@
+# Local environments and Python caches
+venv/
+__pycache__/
+*.py[cod]
+
+# Generated solver and benchmark results
+log/
+output/
+benchmark/
+
+# FNO/PINO generated datasets: retain scripts/plans, not thousands of cases
+fno-pino-benchmark/**/input/
+fno-pino-benchmark/**/raw/
+fno-pino-benchmark/**/prepared/
+fno-pino-benchmark/**/status/
