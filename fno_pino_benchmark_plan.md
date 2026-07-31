@@ -61,7 +61,8 @@ inside the objective window and outside the PML.
 - Geometry: Cartesian, homogeneous, elastic, full space.
 - Boundary treatment: PML on all four sides; no free surface.
 - PML physical width: 3 km = 60 grid points.
-- Spatial resolution: 0.05 km (50 m).
+- Pilot spatial resolution: 0.1 km (100 m). Retain 50 m as the later
+  high-resolution production target after the pilot passes.
 - Time step: 0.002 s.
 - End time: 10.0 s.
 - Solver steps: 5,000.
@@ -73,9 +74,9 @@ inside the objective window and outside the PML.
   cases against the CPU solver before bulk generation.
 - Precision: solver `float64`; prepared ML tensors `float32` after verification.
 
-The complete computational grid has 721 points per axis (361 points in each
-horizontal block, with the interface represented in both blocks). The centered
-objective window has 401 x 401 points and excludes all PML cells.
+The pilot computational grid has 361 points per axis (181 points in each horizontal
+block, with the interface represented in both blocks). The centered objective
+window has 201 x 201 points and excludes all PML cells.
 
 ## 4. Dataset organization and schema
 
@@ -147,8 +148,9 @@ point distance for every validation/test case so extrapolation difficulty is cle
 Also define nested training subsets of 75, 150, 300, 600, and 1,050 cases. Train
 both models on identical subsets to generate accuracy-versus-data learning curves.
 
-To prioritize maximum OOD accuracy, retain native 50 m spatial resolution and the
-full 0.02 s saved-time resolution, use edge-weighted training sampling near offsets
+To prioritize maximum OOD accuracy in the pilot, retain native 100 m spatial
+resolution without further spatial downsampling and keep the full 0.02 s saved-time
+resolution. Use edge-weighted training sampling near offsets
 of +/-5 km, tune hyperparameters on the mixed ID/near-OOD validation split, train at
 least three seeds, and evaluate a seed ensemble in addition to individual models.
 Do not include the far-OOD test band in normalization, early stopping, or tuning.
@@ -232,7 +234,7 @@ Responsibilities:
 - support `--split`, `--limit`, `--jobs`, `--backend`, and `--resume`;
 - write raw NPZ or streaming HDF5 results, then extract/crop only `vx` and `vy` into
   the 20 km x 20 km objective window;
-- verify 500 frames, 401 x 401 points, two fields, finite values, and monotonic time;
+- verify 500 frames, 201 x 201 points, two fields, finite values, and monotonic time;
 - optionally remove bulky raw five-field output only after prepared-data checksum
   verification and only with an explicit cleanup flag.
 
@@ -300,8 +302,8 @@ using validation field relative L2 and report physics residual independently.
 
 ## 10. Storage and runtime controls
 
-At 401 x 401 points, 500 frames, two `float32` fields require about 643 MB per case
-before compression, or roughly 965 GB for 1,500 cases. Raw five-field `float64`
+At 201 x 201 points, 500 frames, two `float32` fields require about 162 MB per case
+before compression, or roughly 242 GB for 1,500 cases. Raw five-field `float64`
 archives would be much larger. Therefore:
 
 - retain only objective-window `vx` and `vy` for routine ML use;
@@ -320,7 +322,7 @@ archives would be much larger. Therefore:
 5. Compare one CPU/H100 pair and validate crop/field extraction.
 6. Run 15 H100 cases and measure runtime, compression, and storage.
 7. Freeze manifests and generate all 1,500 Stage 1 cases.
-8. Adapt the previous FNO pipeline to metadata-driven 50 m full-space data.
+8. Adapt the previous FNO pipeline to metadata-driven 100 m pilot full-space data.
 9. Train/evaluate FNO across shared seeds and nested data subsets.
 10. Validate the PINO residual, warm-start, train, and evaluate PINO identically.
 11. Publish the matched Stage 1 report and apply the gate.

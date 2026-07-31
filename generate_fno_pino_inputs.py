@@ -26,7 +26,7 @@ PHYSICAL_SIZE_KM = 30.0
 PML_KM = 3.0
 COMPUTATIONAL_SIZE_KM = PHYSICAL_SIZE_KM + 2.0 * PML_KM
 OBJECTIVE_SIZE_KM = 20.0
-DX_KM = 0.05
+DX_KM = 0.1
 DT_S = 0.002
 TEND_S = 10.0
 IPLOT = 10
@@ -299,7 +299,7 @@ def validate_with_solver(cases: list[Case], output_format: str) -> None:
     for case in cases:
         params = config_2d.build_params(input_settings(case, output_format), 1)
         config_2d.validate(params)
-        if (params["nx_left"], params["nx_right"], params["ny"]) != (361, 361, 721):
+        if (params["nx_left"], params["nx_right"], params["ny"]) != (181, 181, 361):
             raise ValueError(f"unexpected grid for {case.case_id}")
         if params["nt"] != 5000 or params["iplot"] != 10:
             raise ValueError(f"unexpected time sampling for {case.case_id}")
@@ -321,9 +321,9 @@ def manifest_row(case: Case) -> dict[str, object]:
         "pml_km": PML_KM,
         "pml_points": PML_POINTS,
         "dx_km": DX_KM,
-        "nx_left": 361,
-        "nx_right": 361,
-        "ny": 721,
+        "nx_left": 181,
+        "nx_right": 181,
+        "ny": 361,
         "snap_dt_s": DT_S * IPLOT,
         "expected_frames": round(TEND_S / (DT_S * IPLOT)),
         "field_order": "vx,vy",
@@ -387,7 +387,7 @@ def print_summary(cases: list[Case], output_root: Path, dry_run: bool) -> None:
     print(f"Counts:            {counts}")
     print(f"Train y0:          13 to 23 km (center +/-5 km)")
     print(f"Far-OOD y0:        10 to 11 and 25 to 26 km")
-    print(f"Grid:              361 + 361 by 721")
+    print(f"Grid:              181 + 181 by 361")
     print(f"Steps/frames:      5000 / 500")
     print(f"Output root:       {output_root}")
 
