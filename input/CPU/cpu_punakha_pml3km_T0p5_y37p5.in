@@ -22,12 +22,12 @@ station_file = none
 station_stride = 1
 station_interpolation = nearest
 station_include_fault = false
-# dt=0.001 s and iplot=20 save output every 0.02 s
-iplot = 20
+# dt=0.002 s and iplot=10 save output every 0.02 s
+iplot = 10
 
 # Boundary conditions
 absorbing_method = pml
-pml_width = 150
+pml_width = 60
 pml_profile_order = 3
 pml_reflection_target = 1e-6
 pml_max_damping = auto
@@ -48,7 +48,7 @@ Qp = 1000000000.0
 Qs = 1000000000.0
 
 # Simulation settings
-dt = 0.001
+dt = 0.002
 tend = 10.0
 cfl = 0.5
 fd_type = central
@@ -58,13 +58,13 @@ order = 6
 mode = II
 interface = none
 
-# 50 km x 50 km domain at 20 m (0.02 km) spacing
+# 50 km x 50 km domain at 50 m (0.05 km) spacing
 x_left_length = 25.0
 x_right_length = 25.0
 y_length = 50.0
-x_left_resolution = 0.02
-x_right_resolution = 0.02
-y_resolution = 0.02
+x_left_resolution = 0.05
+x_right_resolution = 0.05
+y_resolution = 0.05
 
 # Homogeneous material properties (km/s and g/cm^3)
 cp = 6.0
