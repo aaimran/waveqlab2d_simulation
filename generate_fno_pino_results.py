@@ -54,7 +54,17 @@ def valid_hdf5(path: Path, row: dict[str, str]) -> tuple[bool, str]:
                 return False, f"unexpected snap_times shape {times.shape}"
             if not np.all(np.isfinite(times)) or not np.all(np.diff(times) > 0):
                 return False, "invalid snapshot times"
-            expected_end = float(row["tend_s"])
+            # WaveQLab snapshots at zero-based iterations 0, iplot, 2*iplot, ...
+            # after advancing the state, so times are dt, (iplot+1)*dt, ... .
+            dt = float(row["dt_s"])
+            iplot = int(row["iplot"])
+            expected_start = dt
+            expected_end = ((expected_frames - 1) * iplot + 1) * dt
+            expected_stride = iplot * dt
+            if not np.isclose(float(times[0]), expected_start, atol=1.0e-6):
+                return False, f"first snapshot is {times[0]}, expected {expected_start}"
+            if not np.allclose(np.diff(times), expected_stride, atol=1.0e-6, rtol=0.0):
+                return False, f"snapshot stride is not {expected_stride}"
             if not np.isclose(float(times[-1]), expected_end, atol=1.0e-5):
                 return False, f"last snapshot is {times[-1]}, expected {expected_end}"
             # Sample first/final velocity frames without loading the full archive.
