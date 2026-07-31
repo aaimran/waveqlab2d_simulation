@@ -127,17 +127,17 @@ are recoverable.
 - OOD evaluation extends to `y0 = 7.5 +/- 5 km`, or `[2.5, 12.5] km`.
 
 The solver evaluates its spatial Gaussian continuously, so off-grid `y0` values are
-valid. Nevertheless, 1,500 samples in one dimension are strongly correlated. Treat
-Stage 1 as a pipeline and interpolation benchmark, and report learning curves at
-smaller subsets to quantify whether all 1,500 simulations add value.
+valid. Samples in one dimension become strongly correlated as the dataset grows.
+Treat Stage 1 as a pipeline and interpolation benchmark, and use the nested
+500/1,000/1,500/2,000 designs to quantify whether additional simulations add value.
 
 ### 5.2 Split
 
-Use a deterministic, immutable split totaling 1,500 cases:
+Begin with a deterministic, immutable 500-case pilot:
 
-- Training: 1,050 ID cases with offsets in `[-3,3] km`.
-- Validation: 100 ID plus 50 near-OOD cases with absolute offsets in `(3,4] km`.
-- Test: 150 ID plus 150 far-OOD cases with absolute offsets in `(4,5] km`.
+- Training: 350 ID cases with offsets in `[-3,3] km`.
+- Validation: 34 ID plus 16 near-OOD cases with absolute offsets in `(3,4] km`.
+- Test: 50 ID plus 50 far-OOD cases with absolute offsets in `(4,5] km`.
 
 Generate a one-dimensional scrambled Sobol or stratified design independently
 inside each interval. Assign splits before simulation with a fixed seed. Test
@@ -145,8 +145,11 @@ locations must be held out, not copied from training. Include `y0=7.5 km` explic
 in the ID test set and `y0=2.5,12.5 km` in the OOD test set. Record nearest-training-
 point distance for every validation/test case so extrapolation difficulty is clear.
 
-Also define nested training subsets of 75, 150, 300, 600, and 1,050 cases. Train
-both models on identical subsets to generate accuracy-versus-data learning curves.
+Use nested low-discrepancy prefixes so the entire 500-case design is an exact subset
+of the 1,000-case design, which is an exact subset of 1,500, 2,000, and later
+500-case increments. This supports controlled accuracy-versus-data learning curves
+without changing earlier cases or splits. The corresponding training counts are
+350, 700, 1,050, and 1,400.
 
 To prioritize maximum OOD accuracy in the pilot, retain native 100 m spatial
 resolution without further spatial downsampling and keep the full 0.02 s saved-time
@@ -179,7 +182,7 @@ Sobol design rather than a tensor grid, with the same 1,200/150/150 split. Inclu
 the baseline `(M0,T)=(0.02824,0.2)` in the test set.
 
 Add explicit OOD evaluation cases outside, but close to, the training rectangle;
-keep them separate from the requested 1,500 ID samples. Recommended OOD boundaries
+keep them separately labeled from ID samples. Recommended OOD boundaries
 are `M0` at 0.4x and 1.6x baseline and `T` at 0.12 and 0.40 s, subject to solver
 stability and physical relevance.
 
@@ -208,14 +211,36 @@ generate it until the Stage 1 gate passes.
 Stage 1 is implemented with a default no-write validation command:
 
 ```bash
-python generate_fno_pino_inputs.py --stage y0 --dry-run
+python generate_fno_pino_inputs.py --stage y0 --total-cases 500 --dry-run
 ```
 
 After reviewing the dry-run summary, generate the decks on Punakha with:
 
 ```bash
-python generate_fno_pino_inputs.py --stage y0
+python generate_fno_pino_inputs.py --stage y0 --total-cases 500
 ```
+
+An alternative no-PML design uses a 42 km x 42 km extended domain with SAT
+absorbing outer boundaries and the same centered 10 km x 10 km objective window.
+The generator verifies every source position, including the +/-5 km OOD extremes,
+against a hypothetical perfectly reflected P wave. The worst round trip is 32 km,
+or 5.33 s, so no outer-boundary reflection can return during `tend=5 s`.
+
+```bash
+python generate_fno_pino_inputs.py \
+  --stage y0 \
+  --total-cases 500 \
+  --boundary-design extended-nopml \
+  --dry-run
+
+python generate_fno_pino_inputs.py \
+  --stage y0 \
+  --total-cases 500 \
+  --boundary-design extended-nopml
+```
+
+This design writes to `fno-pino-benchmark/stage1-y0-extended-nopml` by default,
+keeping it isolated from the compact PML dataset.
 
 Generated input/raw/prepared/status directories are excluded by `.gitignore`, while
 the generator and plan remain trackable.
@@ -294,7 +319,8 @@ Run at least three shared seeds. Report median and dispersion for:
 - training time, peak GPU memory, parameter count, and checkpoint size;
 - single-frame latency and complete 250-frame trajectory latency;
 - speedup versus the H100 numerical solver;
-- learning curves versus 75/150/300/600/1,050 training cases.
+- learning curves versus 500/1,000/1,500/2,000 total generated cases, corresponding
+  to 350/700/1,050/1,400 supervised training cases.
 
 Use paired per-case statistical comparisons because FNO and PINO share the same test
 cases. Do not select the winning model from training loss alone. Select checkpoints
@@ -303,7 +329,7 @@ using validation field relative L2 and report physics residual independently.
 ## 10. Storage and runtime controls
 
 At 101 x 101 points, 250 frames, two `float32` fields require about 20.4 MB per case
-before compression, or roughly 30.6 GB for 1,500 cases. Raw five-field `float64`
+before compression, or roughly 10.2 GB for the initial 500-case pilot. Raw five-field `float64`
 archives would be much larger. Therefore:
 
 - retain only objective-window `vx` and `vy` for routine ML use;
@@ -321,7 +347,8 @@ archives would be much larger. Therefore:
 4. Implement the restart-safe simulation/result generator.
 5. Compare one CPU/H100 pair and validate crop/field extraction.
 6. Run 15 H100 cases and measure runtime, compression, and storage.
-7. Freeze manifests and generate all 1,500 Stage 1 cases.
+7. Freeze the 500-case pilot manifest and generate the pilot, then extend through
+   the nested 1,000/1,500/2,000 designs only when learning curves justify it.
 8. Adapt the previous FNO pipeline to metadata-driven 100 m pilot full-space data.
 9. Train/evaluate FNO across shared seeds and nested data subsets.
 10. Validate the PINO residual, warm-start, train, and evaluate PINO identically.
