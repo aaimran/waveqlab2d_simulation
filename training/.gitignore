@@ -1,0 +1,8 @@
+._*
+phase.aux
+phase.fdb_latexmk
+phase.fls
+phase.log
+phase.out
+phase.toc
+__pycache__/

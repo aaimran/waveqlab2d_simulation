@@ -93,6 +93,7 @@ def main() -> int:
         str(venv_python), "-m", "pip", "install", "-e",
         f"{solver}[cuda,hdf5]",
     ])
+    run([str(venv_python), "-m", "pip", "install", "torch>=2.12"])
 
     print("\nChecking CPU imports...")
     run([

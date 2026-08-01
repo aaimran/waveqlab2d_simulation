@@ -1,0 +1,182 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm,booktabs,array,longtable}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor,listings}
+\lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single,
+  keywordstyle=\color{blue!60!black},commentstyle=\color{green!40!black}}
+\title{Phase-by-Phase FNO and PINO Training for WaveQLab2D}
+\author{WaveQLab2D Simulation Pipeline}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{Purpose and experimental contract}
+The objective is to learn the map from a Gaussian source position and query time to
+the full particle-velocity field,
+\[
+  \mathcal{G}: (x_0,y_0,t)\longmapsto
+  \bm v(x,y,t)=(v_x(x,y,t),v_y(x,y,t)),
+\]
+on the fixed $10\times10$ km objective window.  The supervised FNO and PINO use the
+same raw simulations, prepared tensors, normalization, architecture, optimizer
+family, validation cases, and test cases.  PINO is warm-started from FNO and adds a
+wave-equation residual.  This isolates the effect of physics regularization.
+
+The pilot contains 500 simulations: 350 training, 50 validation, 50 ID test, and 50
+far-OOD test cases.  Training source offsets are in $[-3,3]$ km; far-OOD offsets are
+in $[-5,-4)\cup(4,5]$ km.  Designs at 500, 1000, 1500, and 2000 samples are nested,
+so learning curves do not change earlier examples.
+
+\section{Governing equations}
+For homogeneous isotropic linear elasticity,
+\begin{align}
+ \rho\,\partial_t \bm v &= \nabla\cdot\bm\sigma + \bm f,\\
+ \partial_t\bm\sigma &= \lambda(\nabla\cdot\bm v)\bm I
+        +\mu\left(\nabla\bm v+\nabla\bm v^T\right),
+\end{align}
+where $\rho$ is density and $\lambda,\mu$ are Lam\'e parameters.  Eliminating stress
+away from the source gives the velocity Navier equation
+\begin{equation}
+ \partial_{tt}\bm v = c_s^2\nabla^2\bm v
+ +(c_p^2-c_s^2)\nabla(\nabla\cdot\bm v),
+ \label{eq:navier}
+\end{equation}
+with $c_p^2=(\lambda+2\mu)/\rho$ and $c_s^2=\mu/\rho$.
+
+In components,
+\begin{align}
+R_x &= v_{x,tt}-c_p^2v_{x,xx}-c_s^2v_{x,yy}
+ -(c_p^2-c_s^2)v_{y,xy},\\
+R_y &= v_{y,tt}-c_s^2v_{y,xx}-c_p^2v_{y,yy}
+ -(c_p^2-c_s^2)v_{x,xy}.
+\end{align}
+The PINO physics loss is the mean squared nondimensional residual outside a source
+mask.  Centered second differences use the saved spacing $\Delta t_s=0.02$ s and
+$\Delta x=\Delta y=0.1$ km.  The source mask radius is 0.5 km, exceeding twice the
+solver Gaussian standard deviation $\sigma=2\Delta x=0.2$ km.
+
+\section{Fourier Neural Operator}
+Let $a(x,y)$ denote the input-channel field.  A spectral layer applies
+\begin{equation}
+ z_{\ell+1}=\phi\!\left(W_\ell z_\ell+
+ \mathcal{F}^{-1}\!\left(R_\ell\,\mathcal{F}z_\ell\right)\right),
+\end{equation}
+where $W_\ell$ is a learned pointwise map and $R_\ell$ contains learned complex
+weights for a truncated set of Fourier modes.  The retained low modes efficiently
+represent propagating wave structure while the local $1\times1$ convolution restores
+local coupling.
+
+The model inputs are: the spatial Gaussian source, source multiplied by its temporal
+envelope, normalized $x$ and $y$, distance to the objective boundary, normalized
+query time, normalized $y_0$, and three sine/cosine Fourier pairs in time.  There are
+13 channels and two output channels.
+
+\section{Losses}
+The supervised loss combines pointwise, gradient, and spectral agreement:
+\begin{equation}
+ \mathcal{L}_{\rm data}=\operatorname{MSE}(\hat v,v)
+ +0.05\operatorname{MAE}(\hat v,v)
+ +0.05(\operatorname{MAE}(D_x\hat v,D_xv)+\operatorname{MAE}(D_y\hat v,D_yv))
+ +0.01\operatorname{MAE}(|\mathcal{F}\hat v|,|\mathcal{F}v|).
+\end{equation}
+PINO minimizes
+\begin{equation}
+ \mathcal{L}_{\rm PINO}=\mathcal{L}_{\rm data}+\gamma\mathcal{L}_{\rm physics},
+ \qquad
+ \mathcal{L}_{\rm physics}=\frac{1}{|\Omega_m|}\sum_{\Omega_m}
+ \left\|\frac{\bm R}{v_{\rm scale}/\Delta t_s^2}\right\|_2^2.
+\end{equation}
+The default $\gamma=0.01$ follows the earlier pilot.  It must be tuned only on the
+validation split; recommended values are $10^{-3},3\times10^{-3},10^{-2},3\times
+10^{-2}$.
+
+\section{Phase algorithms}
+\subsection{Phase 01: integrity and preparation}
+\texttt{phase\_01.py} finds exactly one finalized raw HDF5 archive per manifest row,
+merges the left/right blocks while removing the duplicate interface point, selects
+only $v_x,v_y$, transposes to $[t,x,y,2]$, checks shape $[250,101,101,2]$ and finite
+values, then writes a chunked compressed prepared HDF5 file.
+\begin{lstlisting}[language=Python]
+left = source["DomainOutput_l"][:-1, :, :, :2]
+right = source["DomainOutput_r"][:, :, :, :2]
+velocity = np.concatenate((left, right), axis=0).transpose(2,0,1,3)
+\end{lstlisting}
+
+\subsection{Phase 02: leakage-free normalization}
+\texttt{phase\_02.py} reads training cases only.  Per-component maximum magnitude and
+RMS are accumulated in time chunks.  The scale is
+\[s_k=\max(\max|v_k|,5\operatorname{RMS}(v_k)).\]
+Coordinates, saved times, spacings, scales, and field order are stored in
+\texttt{normalization.json}.  Validation and test data never influence this file.
+
+\subsection{Phase 03: baseline FNO}
+Each optimization step samples cases and query frames, constructs the conditioning
+channels, scales the target velocities, evaluates the FNO, and applies the composite
+supervised loss.  AdamW, cosine learning-rate decay, unit gradient clipping, and
+validation relative $L_2$ checkpoint selection are used.
+
+\subsection{Phase 04: bounded hyperparameter tuning}
+\texttt{phase\_04.py} searches width $\{24,32,48\}$, modes $\{12,16,20\}$, and
+learning rate $\{5\times10^{-4},10^{-3}\}$.  Short trials rank configurations by
+validation relative $L_2$.  The winning configuration should then be retrained with
+the full Phase 03 budget and at least three seeds.  The test set is not consulted.
+
+\subsection{Phase 05: PINO fine-tuning}
+Three consecutive query times are passed through the same FNO.  Their predicted
+fields approximate $v_{tt}$, while spatial differences approximate the derivatives
+in Eq.~\eqref{eq:navier}.  Fine-tuning starts from the best FNO checkpoint with a
+smaller learning rate $10^{-4}$ to preserve the learned data manifold.
+\begin{lstlisting}[language=Python]
+predicted = model(triplet_inputs)
+data = supervised_loss(predicted_current, truth_current)
+physics = navier(predicted, cases, metadata, scale)
+loss = data + physics_weight * physics
+\end{lstlisting}
+
+\subsection{Phase 06: matched evaluation}
+Both checkpoints predict every saved test frame.  The report separates ID and
+far-OOD cases and records global relative $L_2$, per-case relative $L_2$, maximum
+absolute error, median/p90 error, total inference time, and milliseconds per frame.
+Evaluation uses identical batches and normalization for FNO and PINO.
+
+\section{Parameter and hyperparameter rationale}
+\begin{longtable}{p{0.25\linewidth}p{0.2\linewidth}p{0.46\linewidth}}
+\toprule Parameter & Default & Rationale\\\midrule
+Spatial modes & 16 & Resolves wavelengths represented on a $101^2$ grid without the cost of retaining all modes.\\
+Width & 32 & Moderate H100 memory use; width search tests under/over-capacity.\\
+Layers & 4 & Repeated global/local mixing with stable optimization.\\
+Batch size & 4 FNO, 2 PINO & PINO evaluates three times per sampled case.\\
+FNO learning rate & $10^{-3}$ & AdamW baseline; searched against $5\times10^{-4}$.\\
+PINO learning rate & $10^{-4}$ & Conservative warm-start fine-tuning.\\
+Weight decay & $10^{-4}$ & Limits spectral-weight overfit.\\
+Physics weight & $10^{-2}$ & Previous pilot baseline; tune logarithmically.\\
+Source mask & 0.5 km & Excludes the forced region where homogeneous Eq.~\eqref{eq:navier} is invalid.\\
+Checkpoint metric & validation relative $L_2$ & Directly targets physical field accuracy.\\
+\bottomrule
+\end{longtable}
+
+\section{Accuracy-first tuning protocol}
+First verify overfitting on a tiny subset; failure indicates a code or conditioning
+problem.  Next tune FNO capacity and optimizer settings using all validation cases.
+Retrain the winner with three seeds.  Tune PINO physics weight from weak to strong,
+rejecting settings that reduce residual but degrade validation field error.  Finally
+evaluate once on ID and far-OOD test groups.  For the nested 500/1000/1500/2000
+study, preserve hyperparameter-search rules and report both single-seed and ensemble
+learning curves.
+
+\section{Reproducible execution}
+\begin{lstlisting}[language=bash]
+python phase_01.py DATASET
+python phase_02.py DATASET
+python phase_03.py DATASET --output-dir DATASET/models/fno
+python phase_04.py DATASET --output-dir DATASET/models/search
+python phase_05.py DATASET DATASET/models/fno/best.pt \
+  --output-dir DATASET/models/pino
+python phase_06.py DATASET --fno DATASET/models/fno/best.pt \
+  --pino DATASET/models/pino/best.pt --output-dir DATASET/evaluation
+\end{lstlisting}
+
+\end{document}
